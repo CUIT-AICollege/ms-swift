@@ -955,6 +955,13 @@ class GRPOTrainer(RLHFTrainerMixin, SwiftMixin, HFGRPOTrainer):
         self._metrics[mode]['reward'].append(grouped_rewards.mean().item())
         self._metrics[mode]['reward_std'].append(grouped_rewards.std(dim=1).mean().item())
 
+        # Calculate and log perplexity
+        with torch.no_grad():
+            log_probs = inputs['logits'][:, :-1].log_softmax(-1)
+            target_log_probs = torch.gather(log_probs, -1, inputs['input_ids'][:, 1:].unsqueeze(-1)).squeeze(-1)
+            perplexity = torch.exp(-target_log_probs.mean())
+            self._metrics[mode]['perplexity'].append(perplexity.item())
+
         # Log completions if enabled
         if self.log_completions and self.state.global_step % self.args.logging_steps == 0:
             table = {
