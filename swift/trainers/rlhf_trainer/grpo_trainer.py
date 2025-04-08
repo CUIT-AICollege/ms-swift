@@ -955,12 +955,26 @@ class GRPOTrainer(RLHFTrainerMixin, SwiftMixin, HFGRPOTrainer):
         self._metrics[mode]['reward'].append(grouped_rewards.mean().item())
         self._metrics[mode]['reward_std'].append(grouped_rewards.std(dim=1).mean().item())
 
-        # Calculate and log perplexity
+        # 计算并记录困惑度
         with torch.no_grad():
-            log_probs = inputs['logits'][:, :-1].log_softmax(-1)
-            target_log_probs = torch.gather(log_probs, -1, inputs['input_ids'][:, 1:].unsqueeze(-1)).squeeze(-1)
-            perplexity = torch.exp(-target_log_probs.mean())
-            self._metrics[mode]['perplexity'].append(perplexity.item())
+            # 如果 inputs 是列表，需要处理每个批次
+            if isinstance(inputs, list):
+                all_perplexities = []
+                for batch in inputs:
+                    if 'logits' in batch:  # 确保批次中有 logits
+                        log_probs = batch['logits'][:, :-1].log_softmax(-1)
+                        target_log_probs = torch.gather(log_probs, -1, batch['input_ids'][:, 1:].unsqueeze(-1)).squeeze(-1)
+                        batch_perplexity = torch.exp(-target_log_probs.mean())
+                        all_perplexities.append(batch_perplexity.item())
+                if all_perplexities:
+                    perplexity = sum(all_perplexities) / len(all_perplexities)
+                    self._metrics[mode]['perplexity'].append(perplexity)
+            else:
+                # 原来的代码，适用于 inputs 是单个字典的情况
+                log_probs = inputs['logits'][:, :-1].log_softmax(-1)
+                target_log_probs = torch.gather(log_probs, -1, inputs['input_ids'][:, 1:].unsqueeze(-1)).squeeze(-1)
+                perplexity = torch.exp(-target_log_probs.mean())
+                self._metrics[mode]['perplexity'].append(perplexity.item())
 
         # Log completions if enabled
         if self.log_completions and self.state.global_step % self.args.logging_steps == 0:
